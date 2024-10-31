@@ -2,7 +2,10 @@ library google_transl;
 
 import 'dart:async';
 import 'dart:convert' show jsonDecode;
+import 'dart:io';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import './tokens/google_token_gen.dart';
 import './langs/language.dart';
 
@@ -16,11 +19,83 @@ part './model/translation.dart';
 class GoogleTranslator {
   var _baseUrl = 'translate.googleapis.com'; // faster than translate.google.com
   final _path = '/translate_a/single';
+  final _speechPath = "/translate_tts";
   final _tokenProvider = GoogleTokenGenerator();
   final _languageList = LanguageList();
   final ClientType client;
+  String _previous = "";
 
   GoogleTranslator({this.client = ClientType.siteGT});
+
+  /// Get speech of the input text
+  Future<void> getSpeech(String sourceText, String lang) async {
+    final _cacheDir = await getTemporaryDirectory();
+    final audioFile = File('${_cacheDir.path}/tts_speech.mp3');
+    if (_previous == sourceText && await audioFile.exists()) {
+      await AudioPlayer().play(
+        DeviceFileSource(audioFile.path),
+      );
+      return;
+    }
+    if (!LanguageList.contains(lang)) throw LanguageNotSupportedException(lang);
+    final parameters = {
+      'ttsspeed': '1.0',
+      'client': 't',
+      'tl': lang,
+      'ie': 'UTF-8',
+      'tk': _tokenProvider.generateToken(sourceText),
+      'q': sourceText,
+    };
+
+    var url = Uri.https(_baseUrl, _speechPath, parameters);
+    final data = await http.get(url);
+
+    if (data.statusCode == 200) {
+      await audioFile.writeAsBytes(data.bodyBytes);
+      _previous = sourceText;
+      await AudioPlayer().play(DeviceFileSource(audioFile.path));
+    } else {
+      throw http.ClientException('Error ${data.statusCode}: ${data.body}', url);
+    }
+  }
+
+  /// Get phonetic transcription from specified language
+  Future<String> getPhoneticTranscription(
+      String soruceText, String from) async {
+    if (!LanguageList.contains(from)) throw LanguageNotSupportedException(from);
+    final parameters = {
+      'client': 't',
+      'sl': from,
+      'tl': from,
+      // 'hl': from,
+      'dt': ['rm', 't'],
+      'ie': 'UTF-8',
+      'oe': 'UTF-8',
+      'otf': '1',
+      'ssel': '0',
+      'tsel': '0',
+      'kc': '7',
+      'tk': _tokenProvider.generateToken(soruceText),
+      'q': soruceText,
+    };
+
+    var url = Uri.https(_baseUrl, _path, parameters);
+    final data = await http.get(url);
+
+    if (data.statusCode != 200) {
+      throw http.ClientException('Error ${data.statusCode}: ${data.body}', url);
+    }
+
+    final jsonData = jsonDecode(data.body);
+    if (jsonData == null) {
+      throw http.ClientException('Error: Can\'t parse json data');
+    }
+
+    if (jsonData.isEmpty) return "";
+    if (jsonData[0].length > 1) return jsonData[0][1].last;
+
+    return "";
+  }
 
   /// Translates texts from specified language to another
   Future<Translation> translate(String sourceText,
@@ -60,7 +135,6 @@ class GoogleTranslator {
     }
 
     final sb = StringBuffer();
-
     for (var c = 0; c < jsonData[0].length; c++) {
       sb.write(jsonData[0][c][0]);
     }

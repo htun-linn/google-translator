@@ -4,7 +4,9 @@ description: A free and unlimited Google Translate API for Dart. You can use it 
 #author: Gabriel N. Pacheco <gabrielpacheco23@live.com>
 homepage: https://github.com/gabrielpacheco23/google-translator
 dependencies:
+  audioplayers: ^6.1.0
   http: ^1.1.0
+  path_provider: ^2.1.4
 
 dev_dependencies:
   test: any
